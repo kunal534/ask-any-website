@@ -82,11 +82,15 @@ export const POST = async (req: Request) => {
   }
 };
 
+interface Message{
+  role:'user' | 'assistant' |'system';
+  content: string;
+}
 async function streamMistral(
   url: string,
   context: string,
   question: string,
-  messages: any[]
+  messages: Message[]
 ) {
   const chatHistory = messages.slice(0, -1)
     .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`)
@@ -170,8 +174,8 @@ Provide a detailed answer based only on the content above:`;
                   if (content) {
                     controller.enqueue(encoder.encode(content));
                   }
-                } catch (e) {
-                  // Skip invalid JSON
+                } catch (error) {
+                   console.error('Stream error:', error);
                 }
               }
             }

@@ -26,8 +26,6 @@ export function getNamespace(url: string): string {
   return sanitized;
 }
 
-
-
 // Generate embeddings using Mistral
 export async function generateEmbedding(text: string): Promise<number[]> {
   try {
@@ -39,18 +37,19 @@ export async function generateEmbedding(text: string): Promise<number[]> {
       },
       body: JSON.stringify({
         model: 'mistral-embed',
-        input: [text.substring(0, 8000)], // Mistral embed max tokens
+        input: [text.substring(0, 8000)],
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Mistral API error: ${response.statusText}`);
+      const errorText = await response.text();
+      throw new Error(`Mistral API error: ${response.statusText} - ${errorText}`);
     }
 
     const data = await response.json();
     return data.data[0].embedding;
   } catch (error) {
-    console.error('Embedding generation failed:', error);
+    console.error('❌ Embedding generation failed:', error);
     throw error;
   }
 }
@@ -88,7 +87,7 @@ export async function storeInPinecone(
     const namespace = getNamespace(sourceUrl);
     const chunks = chunkText(content);
     
-    console.log(`Storing ${chunks.length} chunks in namespace: ${namespace}`);
+    console.log(`📦 Storing ${chunks.length} chunks in namespace: ${namespace}`);
 
     const index = pinecone.index(indexName);
     const vectors = [];
@@ -117,10 +116,10 @@ export async function storeInPinecone(
       await index.namespace(namespace).upsert(batch);
     }
 
-    console.log(`✓ Stored ${vectors.length} vectors in Pinecone namespace: ${namespace}`);
+    console.log(`✅ Stored ${vectors.length} vectors in Pinecone namespace: "${namespace}"`);
     return vectors.length;
   } catch (error) {
-    console.error('Failed to store in Pinecone:', error);
+    console.error('❌ Failed to store in Pinecone:', error);
     throw error;
   }
 }
@@ -142,7 +141,7 @@ export async function queryPinecone(
       includeMetadata: true,
     });
 
-    console.log(`Found ${results.matches?.length || 0} results in namespace: ${namespace}`);
+    console.log(`🔍 Found ${results.matches?.length || 0} results in namespace: "${namespace}"`);
 
     return results.matches?.map(match => ({
       content: match.metadata?.content as string || '',
@@ -151,7 +150,7 @@ export async function queryPinecone(
       score: match.score || 0,
     })) || [];
   } catch (error) {
-    console.error('Failed to query Pinecone:', error);
+    console.error('❌ Failed to query Pinecone:', error);
     return [];
   }
 }
@@ -164,9 +163,9 @@ export async function deletePineconeNamespace(sourceUrl: string) {
     
     await index.namespace(namespace).deleteAll();
     
-    console.log(`✓ Deleted entire namespace: ${namespace}`);
+    console.log(`🗑️  Deleted entire namespace: "${namespace}"`);
   } catch (error) {
-    console.error('Failed to delete Pinecone namespace:', error);
+    console.error('❌ Failed to delete Pinecone namespace:', error);
     throw error;
   }
 }
@@ -185,7 +184,7 @@ export async function getNamespaceStats(sourceUrl: string) {
       namespace,
     };
   } catch (error) {
-    console.error('Failed to get namespace stats:', error);
+    console.error('❌ Failed to get namespace stats:', error);
     return { vectorCount: 0, namespace: getNamespace(sourceUrl) };
   }
 }

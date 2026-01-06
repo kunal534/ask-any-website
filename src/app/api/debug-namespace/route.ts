@@ -7,16 +7,27 @@ const pinecone = new Pinecone({
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const url = searchParams.get('url') || 'https://midnight-horror.vercel.app';
+  const url = searchParams.get('url');
+  
+  // ✅ Remove hardcoded URL - require it as parameter
+  if (!url) {
+    return Response.json({
+      error: 'URL parameter is required'
+    }, { status: 400 });
+  }
   
   const namespace = getNamespace(url);
-  const index = pinecone.index('chatbot');
+  
+  // ✅ Use environment variable instead of hardcoded index name
+  const indexName = process.env.PINECONE_INDEX_NAME || 'chatbot';
+  const index = pinecone.index(indexName);
   
   try {
     const stats = await index.describeIndexStats();
     
     return Response.json({
       url,
+      indexName, // Include for debugging
       expectedNamespace: namespace,
       allNamespaces: stats.namespaces,
       namespaceExists: !!stats.namespaces?.[namespace],

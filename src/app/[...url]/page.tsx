@@ -2,6 +2,7 @@ import { ChatWrapper } from "@/components/ChatWrapper";
 import { redis } from "@/lib/redis";
 import { quickIndexPage } from "@/lib/quick-index";
 import { getNamespaceStats } from "@/lib/pinecone-client";
+import { startBackgroundCrawl } from "@/lib/background-crawler";
 import { notFound } from 'next/navigation';
 
 interface PageProps {
@@ -71,40 +72,50 @@ const Page = async ({ params }: PageProps) => {
       await redis.sadd("indexed-urls", reconstructedUrl);
       
       await redis.hset(`crawl-status:${reconstructedUrl}`, {
-        status: 'pending',
-        homepageIndexed: 'true',
-        sessionId,
-      });
+  status: 'crawling',
+  sessionId,
+  startedAt: new Date().toISOString(),
+  totalPages: '0',
+  newPagesIndexed: '0',
+});
 
       console.log(`✅ Homepage indexed successfully`);
+
+      // ✅ Start background crawl (fire and forget)
+      startBackgroundCrawl({
+        url: reconstructedUrl,
+        sessionId,
+        options: {
+          maxDepth: 3,
+          maxPages: 100,
+          useJavaScript: needsJS,
+        },
+      }).catch((error) => {
+        console.error('❌ Background crawl error:', error);
+      });
 
       return (
         <ChatWrapper
           sessionId={sessionId}
+          websiteUrl={reconstructedUrl}
           initialMessages={[
             {
               id: generateId(),
               role: "assistant",
-              content: `✅ I've indexed the homepage of ${homepageResult.title} and you can start asking questions now!\n\n🔄 I'm crawling the rest of the site in the background to gather more information.\n\n📍 Current site: ${reconstructedUrl}`,
+              content: `📚 I've indexed the homepage of **${homepageResult.title}** and you can start asking questions now!\n\n🔄 I'm crawling the rest of the site in the background to gather more information. You'll get a notification when it's complete!\n\n📍 Site: ${reconstructedUrl}`,
             },
           ]}
-          backgroundCrawlUrl={reconstructedUrl}
-          backgroundCrawlOptions={{
-            maxDepth: 2,
-            maxPages: 30,
-            useJavaScript: needsJS,
-          }}
-          currentUrl={reconstructedUrl}
         />
       );
 
     } catch (err) {
       const error = err as Error;
-      console.error("Failed to index:", error);
+      console.error("❌ Failed to index:", error);
 
       return (
         <ChatWrapper
           sessionId={sessionId}
+          websiteUrl={reconstructedUrl}
           initialMessages={[
             {
               id: generateId(),
@@ -112,26 +123,28 @@ const Page = async ({ params }: PageProps) => {
               content: `⚠️ Error: ${error.message}`,
             },
           ]}
-          currentUrl={reconstructedUrl}
         />
       );
     }
   }
 
+  // Already indexed - check current status
   const crawlStatus = await redis.hgetall(`crawl-status:${reconstructedUrl}`);
   const stats = await getNamespaceStats(reconstructedUrl);
   
   let statusMessage = `Hello! I have information about ${reconstructedUrl}. What would you like to know?`;
   
   if (crawlStatus?.status === 'completed') {
-    statusMessage = `📚 I have indexed ${stats.vectorCount || crawlStatus.totalPages || 'multiple'} pages from this site. Ask me anything!\n\n📍 Site: ${reconstructedUrl}`;
+    const totalPages = (crawlStatus as Record<string, string>).newPagesIndexed || stats.vectorCount || 'multiple';
+    statusMessage = `📚 I have fully indexed **${totalPages} pages** from this site. Ask me anything!\n\n📍 Site: ${reconstructedUrl}`;
   } else if (crawlStatus?.status === 'crawling') {
-    statusMessage = `🔄 Still crawling and indexing pages in the background...\n\n📍 Site: ${reconstructedUrl}`;
+    statusMessage = `🔄 Currently indexing pages in the background. You can start chatting now, and I'll notify you when indexing is complete!\n\n📍 Site: ${reconstructedUrl}`;
   }
 
   return (
     <ChatWrapper
       sessionId={sessionId}
+      websiteUrl={reconstructedUrl}
       initialMessages={[
         {
           id: generateId(),
@@ -139,7 +152,6 @@ const Page = async ({ params }: PageProps) => {
           content: statusMessage,
         },
       ]}
-      currentUrl={reconstructedUrl}
     />
   );
 };
