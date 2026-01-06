@@ -146,7 +146,7 @@ export default function Home() {
           <span className="text-gray-700">•</span>
           
           <Link
-            href="https://your-portfolio-url.com"
+            href="https://kunal-uttam.netlify.app"
             className="hover:text-white transition-colors"
             target="_blank"
           >
