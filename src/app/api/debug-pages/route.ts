@@ -9,14 +9,12 @@ export async function GET(request: Request) {
   }
 
   try {
-    // Get all pages for this URL
     const pages = await redis.smembers(`pages:${url}`);
     
     const pageDetails = await Promise.all(
       pages.map(async (pageUrl) => {
         const data = await redis.hgetall(`page:${pageUrl}`);
         
-        // ✅ Handle null and type cast properly
         return {
           url: pageUrl,
           title: (data?.title as string) || 'Unknown',

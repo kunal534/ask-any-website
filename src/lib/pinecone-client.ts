@@ -155,7 +155,6 @@ export async function queryPinecone(
   }
 }
 
-// Delete entire namespace - FAST!
 export async function deletePineconeNamespace(sourceUrl: string) {
   try {
     const namespace = getNamespace(sourceUrl);

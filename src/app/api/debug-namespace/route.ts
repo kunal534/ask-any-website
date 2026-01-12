@@ -9,7 +9,6 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const url = searchParams.get('url');
   
-  // ✅ Remove hardcoded URL - require it as parameter
   if (!url) {
     return Response.json({
       error: 'URL parameter is required'
@@ -18,7 +17,6 @@ export async function GET(req: Request) {
   
   const namespace = getNamespace(url);
   
-  // ✅ Use environment variable instead of hardcoded index name
   const indexName = process.env.PINECONE_INDEX_NAME || 'chatbot';
   const index = pinecone.index(indexName);
   
@@ -27,7 +25,7 @@ export async function GET(req: Request) {
     
     return Response.json({
       url,
-      indexName, // Include for debugging
+      indexName, 
       expectedNamespace: namespace,
       allNamespaces: stats.namespaces,
       namespaceExists: !!stats.namespaces?.[namespace],

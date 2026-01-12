@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Start background crawl (don't await - fire and forget)
+    // background crawl (don't await - fire and forget)
     startBackgroundCrawl({ url, sessionId, options }).catch((error) => {
       console.error('❌ Background crawl error:', error);
     });

@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
   try {
     const data = await redis.hgetall(`crawl-status:${url}`);
     
-    // ✅ ADD THIS DEBUG LOG
     console.log('📊 Redis status for', url, ':', data);
     
     if (!data || Object.keys(data).length === 0) {
@@ -38,7 +37,6 @@ export async function GET(req: NextRequest) {
       failedAt: statusData.failedAt,
     };
 
-    // ✅ ADD THIS DEBUG LOG
     console.log('✅ Returning status:', response);
 
     return NextResponse.json(response);

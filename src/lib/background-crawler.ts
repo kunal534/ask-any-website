@@ -30,7 +30,6 @@ export async function startBackgroundCrawl(job: BackgroundCrawlJob) {
   try {
     console.log(`🔄 Background crawl started for: ${url} (Session: ${sessionId})`);
     
-    // ✅ Line 34 - Fixed
     await redis.hset(`crawl-status:${url}`, {
       status: 'crawling',
       sessionId,
@@ -86,7 +85,6 @@ export async function startBackgroundCrawl(job: BackgroundCrawlJob) {
         }
       });
 
-      // ✅ Line 91 - Fixed: Update progress
       await redis.hset(`crawl-status:${url}`, {
         status: 'crawling',
         sessionId,
@@ -97,7 +95,6 @@ export async function startBackgroundCrawl(job: BackgroundCrawlJob) {
 
     console.log('🎯 Loop completed, marking as done...');
 
-    // ✅ Line 103 - Fixed: Mark as completed
     await redis.hset(`crawl-status:${url}`, {
       status: 'completed',
       sessionId,
@@ -112,7 +109,6 @@ export async function startBackgroundCrawl(job: BackgroundCrawlJob) {
   } catch (error) {
     console.error('❌ Background crawl failed:', error);
     
-    // ✅ Line 118 - Fixed: Mark as failed
     await redis.hset(`crawl-status:${url}`, {
       status: 'failed',
       sessionId,

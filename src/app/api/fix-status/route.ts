@@ -15,7 +15,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No data found' }, { status: 404 });
     }
 
-    // ✅ Fixed: Use object syntax instead of variadic args
     await redis.hset(`crawl-status:${url}`, {
       status: 'completed',
       completedAt: new Date().toISOString(),

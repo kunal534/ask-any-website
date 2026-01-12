@@ -7,14 +7,12 @@ const pinecone = new Pinecone({
 
 export async function POST() {
   try {
-    // Get all indexed URLs
     const urls = await redis.smembers('indexed-urls');
     
     console.log(`Clearing ${urls?.length || 0} URLs...`);
     
     if (urls && urls.length > 0) {
       for (const url of urls) {
-        // Clear Redis
         const pageUrls = await redis.smembers(`pages:${url}`);
         if (pageUrls) {
           for (const pageUrl of pageUrls) {
@@ -26,10 +24,8 @@ export async function POST() {
       }
     }
     
-    // Clear indexed URLs set
     await redis.del('indexed-urls');
     
-    // Clear all Pinecone namespaces
     const index = pinecone.index('chatbot');
     const stats = await index.describeIndexStats();
     

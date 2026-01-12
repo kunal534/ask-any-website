@@ -18,6 +18,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
+      {/* 
+      cn -> used to solve the name issue 
+      */}
       <body className={cn(inter.className, "min-h-screen antialiased bg-black")}>
         <Providers>
           <main className="h-screen text-white bg-black">

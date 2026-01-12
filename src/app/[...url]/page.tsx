@@ -23,7 +23,6 @@ function reconstructUrl({ url }: { url: string[] }): string | null {
     return null;
   }
   
-  // Must start with http:// or https://
   if (!raw.startsWith('http://') && !raw.startsWith('https://')) {
     const cleaned = raw.replace(/^https?:\/+/, "");
     return `https://${cleaned}`;

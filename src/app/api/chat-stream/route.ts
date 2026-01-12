@@ -135,7 +135,6 @@ Provide a detailed answer based only on the content above:`;
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
 
-    // Create a transform stream to extract content from SSE
     const reader = response.body?.getReader();
     
     const stream = new ReadableStream({

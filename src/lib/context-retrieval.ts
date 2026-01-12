@@ -13,10 +13,8 @@ export async function storePageContent(page: PageData) {
     const pageKey = `page:${page.url}`;
     const sourceKey = `pages:${page.sourceUrl}`;
     
-    // Store as JSON string
     await redis.set(pageKey, JSON.stringify(page));
     
-    // Add to source set
     await redis.sadd(sourceKey, page.url);
     
     console.log(`✓ Stored in Redis: ${page.title}`);
@@ -66,13 +64,11 @@ export async function deletePagesBySource(sourceUrl: string) {
     const pageUrls = await redis.smembers(sourceKey);
     
     if (pageUrls && pageUrls.length > 0) {
-      // Delete each page
       for (const url of pageUrls) {
         await redis.del(`page:${url}`);
       }
     }
     
-    // Delete the source set
     await redis.del(sourceKey);
     
     console.log(`✓ Deleted ${pageUrls?.length || 0} pages from Redis`);
