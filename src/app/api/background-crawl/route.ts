@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { after } from 'next/server';
 import { startBackgroundCrawl } from '@/lib/background-crawler';
+import { isAllowedUrl, normalizeCrawlOptions } from '@/lib/url-guard';
+import { sessionIdForUrl } from '@/lib/session';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 interface CrawlRequestBody {
   url: string;
@@ -7,6 +11,7 @@ interface CrawlRequestBody {
   options?: {
     maxPages?: number;
     maxDepth?: number;
+    useJavaScript?: boolean;
   };
 }
 
@@ -22,20 +27,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Validate URL format
-    try {
-      new URL(url);
-    } catch {
+    if (!isAllowedUrl(url)) {
       return NextResponse.json(
-        { error: 'Invalid URL format' },
+        { error: 'URL not allowed. Only public http(s) websites are supported.' },
         { status: 400 }
       );
     }
 
-    // background crawl (don't await - fire and forget)
-    startBackgroundCrawl({ url, sessionId, options }).catch((error) => {
-      console.error('❌ Background crawl error:', error);
-    });
+    if (sessionIdForUrl(url) !== sessionId) {
+      return NextResponse.json(
+        { error: 'sessionId does not match url' },
+        { status: 400 }
+      );
+    }
+
+    const { allowed } = await checkRateLimit(`crawl:${sessionId}`, 3, 300);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: 'Crawl already requested. Please wait a few minutes.' },
+        { status: 429 }
+      );
+    }
+
+    const normalized = normalizeCrawlOptions(options);
+
+    // Use `after()` so the crawl survives the response on serverless.
+    after(() =>
+      startBackgroundCrawl({ url, sessionId, options: normalized }).catch((error) => {
+        console.error('❌ Background crawl error:', error);
+      })
+    );
 
     return NextResponse.json({ 
       success: true, 

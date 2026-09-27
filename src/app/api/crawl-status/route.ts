@@ -42,9 +42,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(response);
   } catch (error) {
     console.error('Status check failed:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+    const isRedisDown =
+      msg.includes('ENOTFOUND') || msg.includes('fetch failed');
     return NextResponse.json(
-      { error: 'Failed to get status' },
-      { status: 500 }
+      {
+        error: isRedisDown
+          ? 'Storage unavailable (Redis unreachable). Check UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN.'
+          : 'Failed to get status',
+      },
+      { status: isRedisDown ? 503 : 500 }
     );
   }
 }

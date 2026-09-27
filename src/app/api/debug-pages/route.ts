@@ -13,13 +13,30 @@ export async function GET(request: Request) {
     
     const pageDetails = await Promise.all(
       pages.map(async (pageUrl) => {
-        const data = await redis.hgetall(`page:${pageUrl}`);
-        
+        const raw = await redis.get(`page:${pageUrl}`);
+
+        let title = 'Unknown';
+        let contentLength = 0;
+        if (raw) {
+          try {
+            const parsed =
+              typeof raw === 'string' ? JSON.parse(raw) : (raw as Record<string, unknown>);
+            title = (parsed.title as string) || 'Unknown';
+            contentLength = ((parsed.content as string) || '').length;
+          } catch {
+            // legacy hash shape fallback (pre-JSON-string storage)
+            const legacy = (await redis.hgetall(
+              `page:${pageUrl}`
+            )) as Record<string, string> | null;
+            title = legacy?.title || 'Unknown';
+            contentLength = (legacy?.content || '').length;
+          }
+        }
+
         return {
           url: pageUrl,
-          title: (data?.title as string) || 'Unknown',
-          pageType: (data?.pageType as string) || 'Unknown',
-          contentLength: ((data?.content as string) || '').length,
+          title,
+          contentLength,
         };
       })
     );

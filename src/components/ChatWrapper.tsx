@@ -42,6 +42,23 @@ export function ChatWrapper({ sessionId, websiteUrl, initialMessages = [] }: Cha
 
     let pollCount = 0;
     const maxPolls = 360;
+    let fallbackTriggered = false;
+
+    const ensureBackgroundCrawl = async () => {
+      // Fallback for serverless: if `after()` never ran, status will be
+      // missing or stuck at 0 progress — kick the API route once.
+      if (fallbackTriggered) return;
+      fallbackTriggered = true;
+      try {
+        await fetch('/api/background-crawl', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: websiteUrl, sessionId }),
+        });
+      } catch (error) {
+        console.error('Background crawl fallback error:', error);
+      }
+    };
 
     const checkStatus = async () => {
       pollCount++;
@@ -56,6 +73,11 @@ export function ChatWrapper({ sessionId, websiteUrl, initialMessages = [] }: Cha
           { cache: 'no-store', headers: { 'Cache-Control': 'no-cache' } }
         );
 
+        if (response.status === 404) {
+          // No status record (e.g. serverless killed `after()`) — trigger crawl.
+          await ensureBackgroundCrawl();
+          return;
+        }
         if (!response.ok) return;
         const data = await response.json();
 
@@ -81,6 +103,13 @@ export function ChatWrapper({ sessionId, websiteUrl, initialMessages = [] }: Cha
 
         } else if (data.status === 'failed') {
           clearInterval(interval);
+        } else if (
+          data.status === 'crawling' &&
+          pollCount >= 3 &&
+          (data.newPagesIndexed === 0 || data.totalPages === 0)
+        ) {
+          // Stuck at zero progress — `after()` likely never ran.
+          await ensureBackgroundCrawl();
         }
       } catch (error) {
         console.error('Status check error:', error);
@@ -90,7 +119,7 @@ export function ChatWrapper({ sessionId, websiteUrl, initialMessages = [] }: Cha
     const interval = setInterval(checkStatus, 5000);
     checkStatus();
     return () => clearInterval(interval);
-  }, [websiteUrl]);
+  }, [websiteUrl, sessionId]);
 
   const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);

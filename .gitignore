@@ -39,6 +39,7 @@ yarn-error.log*
 
 # environment variables
 .env*
+!.env.example
 
 # Vercel deployment files
 .vercel

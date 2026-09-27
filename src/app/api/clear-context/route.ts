@@ -26,7 +26,11 @@ export async function POST() {
     
     await redis.del('indexed-urls');
     
-    const index = pinecone.index('chatbot');
+    const indexName = process.env.PINECONE_INDEX_NAME;
+    if (!indexName) {
+      return Response.json({ error: 'PINECONE_INDEX_NAME is not configured' }, { status: 500 });
+    }
+    const index = pinecone.index(indexName);
     const stats = await index.describeIndexStats();
     
     if (stats.namespaces) {

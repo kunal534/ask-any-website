@@ -26,32 +26,83 @@ export function getNamespace(url: string): string {
   return sanitized;
 }
 
-// Generate embeddings using Mistral
-export async function generateEmbedding(text: string): Promise<number[]> {
-  try {
-    const response = await fetch('https://api.mistral.ai/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.MISTRAL_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+// Embedding model is env-overridable, but WARNING: changing it on a
+// non-empty index corrupts retrieval (vectors from different models are
+// not comparable). Clear the Pinecone namespace after switching.
+const embedModel = process.env.MISTRAL_EMBED_MODEL || 'mistral-embed';
+
+// Generate embeddings using Mistral (with retry on 429)
+export async function generateEmbedding(
+  text: string,
+  retries = 3
+): Promise<number[]> {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch('https://api.mistral.ai/v1/embeddings', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.MISTRAL_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
       body: JSON.stringify({
-        model: 'mistral-embed',
+        model: embedModel,
         input: [text.substring(0, 8000)],
       }),
-    });
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Mistral API error: ${response.statusText} - ${errorText}`);
+      if (response.status === 401) {
+        throw new Error(
+          'Mistral 401 Unauthorized — your MISTRAL_API_KEY is invalid or revoked. Get a new one at console.mistral.ai.'
+        );
+      }
+
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after');
+        const waitMs = retryAfter
+          ? Number(retryAfter) * 1000
+          : Math.min(1000 * 2 ** attempt, 8000);
+        console.warn(
+          `⏳ Mistral 429 rate-limited (attempt ${attempt + 1}/${retries + 1}). Retrying in ${waitMs}ms...`
+        );
+        if (attempt < retries) {
+          await new Promise((r) => setTimeout(r, waitMs));
+          continue;
+        }
+        throw new Error(
+          'Mistral 429 rate limit exceeded — free tier quota hit. Wait a minute and try again, or reduce background crawl size.'
+        );
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Mistral API error ${response.status}: ${errorText.slice(0, 300)}`);
+      }
+
+      const data = await response.json();
+      return data.data[0].embedding;
+    } catch (error) {
+      lastError = error;
+      // Don't retry auth errors
+      if (error instanceof Error && error.message.includes('401')) throw error;
+      // Network-level fetch failure: retry with backoff
+      if (
+        attempt < retries &&
+        error instanceof Error &&
+        (error.message.includes('fetch failed') || error.message.includes('429'))
+      ) {
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+        continue;
+      }
+      if (attempt >= retries) break;
+      // For non-429 HTTP errors we already threw above; rethrow
+      if (error instanceof Error && error.message.startsWith('Mistral API error')) throw error;
     }
-
-    const data = await response.json();
-    return data.data[0].embedding;
-  } catch (error) {
-    console.error('❌ Embedding generation failed:', error);
-    throw error;
   }
+
+  console.error('❌ Embedding generation failed:', lastError);
+  throw lastError;
 }
 
 // Chunk text into manageable pieces
@@ -84,29 +135,60 @@ export async function storeInPinecone(
   content: string
 ) {
   try {
+    if (!indexName) {
+      throw new Error('PINECONE_INDEX_NAME is not configured');
+    }
     const namespace = getNamespace(sourceUrl);
     const chunks = chunkText(content);
     
     console.log(`📦 Storing ${chunks.length} chunks in namespace: ${namespace}`);
 
     const index = pinecone.index(indexName);
-    const vectors = [];
 
-    for (let i = 0; i < chunks.length; i++) {
-      const embedding = await generateEmbedding(chunks[i]);
-      
-      vectors.push({
-        id: `${Date.now()}_${i}_${Math.random().toString(36).substring(7)}`,
-        values: embedding,
-        metadata: {
-          sourceUrl,
-          pageUrl,
-          title,
-          content: chunks[i],
-          chunkIndex: i,
-          timestamp: new Date().toISOString(),
-        },
-      });
+    // Generate embeddings with bounded concurrency (2 at a time)
+    // to stay under Mistral free-tier rate limits.
+    const EMBED_CONCURRENCY = 2;
+    const vectors: {
+      id: string;
+      values: number[];
+      metadata: Record<string, string | number>;
+    }[] = [];
+
+    for (let i = 0; i < chunks.length; i += EMBED_CONCURRENCY) {
+      const batch = chunks.slice(i, i + EMBED_CONCURRENCY);
+      const settled = await Promise.allSettled(
+        batch.map((chunk, offset) =>
+          generateEmbedding(chunk).then((embedding) => ({
+            id: `${Date.now()}_${i + offset}_${Math.random().toString(36).substring(7)}`,
+            values: embedding,
+            metadata: {
+              sourceUrl,
+              pageUrl,
+              title,
+              content: chunk,
+              chunkIndex: i + offset,
+              timestamp: new Date().toISOString(),
+            },
+          }))
+        )
+      );
+
+      for (const result of settled) {
+        if (result.status === 'fulfilled') {
+          vectors.push(result.value);
+        } else {
+          console.error('❌ Skipping chunk after embedding failure:', result.reason);
+        }
+      }
+
+      // Space out embedding bursts so a long page doesn't hammer Mistral.
+      if (i + EMBED_CONCURRENCY < chunks.length) {
+        await new Promise((r) => setTimeout(r, 800));
+      }
+    }
+
+    if (vectors.length === 0) {
+      throw new Error('All embedding requests failed');
     }
 
     // Upsert in batches of 100 (Pinecone limit)

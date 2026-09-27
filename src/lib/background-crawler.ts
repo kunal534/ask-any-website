@@ -51,7 +51,12 @@ export async function startBackgroundCrawl(job: BackgroundCrawlJob) {
     console.log(`📄 Indexing ${newPages.length} pages in Pinecone...`);
 
     let successCount = 0;
-    const batchSize = 5;
+    let rateLimitHits = 0;
+    // Small parallelism only — each page fans out into several Mistral
+    // embedding calls, so 2 pages at a time is already ~4 concurrent
+    // Mistral requests. Larger batches guarantee 429s on free tier.
+    const batchSize = 2;
+    const BATCH_PAUSE_MS = 2000;
     
     for (let i = 0; i < newPages.length; i += batchSize) {
       const batch = newPages.slice(i, i + batchSize);
@@ -78,12 +83,38 @@ export async function startBackgroundCrawl(job: BackgroundCrawlJob) {
         })
       );
 
+      let batchRateLimited = false;
       results.forEach((result) => {
         if (result.status === 'fulfilled' && result.value.success) {
           successCount++;
           console.log(`✓ [${successCount}/${newPages.length}] ${result.value.title}`);
+        } else if (result.status === 'fulfilled' && !result.value.success) {
+          const msg = String(
+            (result.value.error as Error)?.message || result.value.error || ''
+          );
+          if (msg.includes('429') || msg.includes('rate limit')) {
+            batchRateLimited = true;
+          }
         }
       });
+
+      if (batchRateLimited) {
+        rateLimitHits++;
+        // Back off progressively; abort if Mistral keeps refusing so chat
+        // quota can recover instead of burning it in a tight loop.
+        const backoff = Math.min(5000 * rateLimitHits, 30000);
+        console.warn(
+          `⏳ Mistral 429 during crawl (${rateLimitHits}x). Pausing ${backoff}ms...`
+        );
+        await new Promise((r) => setTimeout(r, backoff));
+        if (rateLimitHits >= 3) {
+          throw new Error(
+            'Mistral rate limit hit repeatedly (429) — pausing background crawl. Already-indexed pages still work; retry crawl later or upgrade Mistral tier.'
+          );
+        }
+      } else {
+        rateLimitHits = 0;
+      }
 
       await redis.hset(`crawl-status:${url}`, {
         status: 'crawling',
@@ -91,6 +122,11 @@ export async function startBackgroundCrawl(job: BackgroundCrawlJob) {
         newPagesIndexed: successCount.toString(),
         totalPages: newPages.length.toString(),
       });
+
+      // Space out Mistral embedding bursts between page batches.
+      if (i + batchSize < newPages.length) {
+        await new Promise((r) => setTimeout(r, BATCH_PAUSE_MS));
+      }
     }
 
     console.log('🎯 Loop completed, marking as done...');

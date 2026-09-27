@@ -152,14 +152,16 @@ export class DeepCrawler {
   }
 
   private getPageType(url: string): string {
-    const path = new URL(url).pathname.toLowerCase();
-    if (path.includes('archive')) return 'Archive';
-    if (path.includes('thought')) return 'Thoughts';
-    if (path.includes('affiliate')) return 'Affiliate';
-    if (path.includes('feedback')) return 'Feedback';
-    if (path.includes('stor')) return 'Story';
-    if (path === '/' || path === '') return 'Homepage';
-    return 'Page';
+    try {
+      const path = new URL(url).pathname.toLowerCase().replace(/\/+$/, '');
+      if (path === '' || path === '/') return 'Homepage';
+      const first = path.split('/').filter(Boolean)[0] || 'page';
+      // Generic label: capitalize first path segment, strip extension
+      const clean = first.split('.')[0].slice(0, 24);
+      return clean.charAt(0).toUpperCase() + clean.slice(1);
+    } catch {
+      return 'Page';
+    }
   }
 
   private extractStructuredContent($: cheerio.Root, url: string): string {
@@ -284,7 +286,7 @@ export class DeepCrawler {
       const metaTitle = $('meta[property="og:title"]').attr('content')?.trim();
       const articleTitle = $('article h1, .story-title, .post-title, .entry-title').first().text().trim();
       
-      if (!title || title === 'Midnight Horror Tales' || title.length < 3) {
+      if (!title || title.length < 3) {
         title = articleTitle || metaTitle || h1Text || this.getPageType(url);
       }
       
